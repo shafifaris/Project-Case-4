@@ -222,36 +222,12 @@ def load_data():
         if not pd.isna(v) else np.nan)
 
     # ── CES (Customer Effort Score) ──
-    def calc_ces_teller(row):
-        aktual = row.get('waktu_tunggu_teller_aktual', np.nan)
-        toleransi = row.get('waktu_tunggu_teller_toleransi', np.nan)
-
-        if pd.isna(aktual) or pd.isna(toleransi) or toleransi <= 0:
-            return np.nan
-
-        ratio = aktual / toleransi
-        ratio = min(ratio, 3.0)
-        ces = round(ratio * 2, 1)
-        ces = max(1, min(6, ces))
-        return ces
-
-    df['ces_teller'] = df.apply(calc_ces_teller, axis=1)
-
-    def calc_ces_cs(row):
-        aktual = row.get('waktu_tunggu_cs_aktual', np.nan)
-        toleransi = row.get('waktu_tunggu_cs_toleransi', np.nan)
-
-        if pd.isna(aktual) or pd.isna(toleransi) or toleransi <= 0:
-            return np.nan
-
-        ratio = aktual / toleransi
-        ratio = min(ratio, 3.0)
-        ces = round(ratio * 2, 1)
-        ces = max(1, min(6, ces))
-        return ces
-
-    df['ces_cs'] = df.apply(calc_ces_cs, axis=1)
-    df['ces_xyz'] = df[['ces_teller', 'ces_cs']].mean(axis=1)
+    # Mengonversi kolom ke numerik untuk memastikan perhitungan aman
+    if 'aksesibilitas_cabang_xyz' in df.columns:
+        df['aksesibilitas_cabang_xyz'] = pd.to_numeric(df['aksesibilitas_cabang_xyz'], errors='coerce')
+    
+    # Nilai ces_xyz diambil langsung dari kolom aksesibilitas_cabang_xyz
+    df['ces_xyz'] = df['aksesibilitas_cabang_xyz']
 
     # CES Kompetitor
     tp_komp_cols = ['overall_teller_komp', 'overall_cs_komp', 'overall_atm_komp',
@@ -654,15 +630,21 @@ with c3:
     </div>""", unsafe_allow_html=True)
 
 with c4:
-    bc4 = badge_cls(ces_pct, 80, 65)
-    ces_label_text = "Mudah" if ces_score <= 2 else (
-        "Sedang" if ces_score <= 4 else "Sulit")
-    label4 = "Low Effort" if ces_score <= 2 else (
-        "Medium Effort" if ces_score <= 4 else "High Effort")
+    # Membalik parameter badge_cls agar ces_pct rendah dapet warna hijau (success)
+    # dan ces_pct tinggi dapet warna merah (danger)
+    bc4 = badge_cls(100 - ces_pct, 80, 65)
+    
+    # Kembali ke logika asli kamu (skor kecil = Sulit / High Effort)
+    ces_label_text = "Sulit" if ces_score <= 2 else (
+        "Sedang" if ces_score <= 4 else "Mudah")
+        
+    label4 = "High Effort" if ces_score <= 2 else (
+        "Medium Effort" if ces_score <= 4 else "Low Effort")
+        
     c4.markdown(f"""<div class="exec-card cyan">
         <span class="exec-icon">💪</span>
         <div class="exec-label">Customer Effort Score (CES)</div>
-        <div class="exec-value" style="color:#0E7490;">{ces_score}<span style="font-size:18px;color:#9B7B5A;">/6</span></div>
+        <div class="exec-value" style="color:#0F5E5A ;">{ces_score}<span style="font-size:18px;color:#9B7B5A;">/6</span></div>
         <div class="exec-sub">{ces_pct}% effort-free · {ces_label_text}</div>
         <span class="exec-badge {bc4}">{label4}</span>
     </div>""", unsafe_allow_html=True)
