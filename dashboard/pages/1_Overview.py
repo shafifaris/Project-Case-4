@@ -722,11 +722,13 @@ with col_comp:
 
         mpi_komp = round(100 - mpi_index, 1) if mpi_index > 0 else 0.0
 
+        # Menambahkan CES dengan fungsi gap_row bawaan Anda (skala disesuaikan, contoh: /5 atau /7)
         rows_html = (
             gap_row("Net Promoter Score (NPS)", nps_score, nps_komp_score)
             + gap_row("Satisfaction (CSI)", csi_score, csi_komp_score, "/6")
             + gap_row("Loyalty (CLI)", cli_score, cli_komp_score, "/6")
             + gap_row("Brand Image Index", brand_index, brand_komp_index, "/6")
+            + gap_row("Customer Effort Score (CES)", ces_score, ces_komp_score, "/5") 
         )
 
         table_html = (
@@ -1056,7 +1058,7 @@ elif cli_pct < 80:
 # 5. CES
 if ces_score > 4:
     action_items.append(
-        ("🟢", f"CES tinggi: {ces_score} (Sulit)", "Perbaiki proses untuk mengurangi effort nasabah"))
+        ("🟢", f"CES tinggi: {ces_score} (Mudah)", "Perbaiki proses untuk mengurangi effort nasabah"))
 elif ces_score > 3:
     action_items.append(
         ("🟡", f"CES sedang: {ces_score}", "Optimasi alur layanan untuk memudahkan nasabah"))

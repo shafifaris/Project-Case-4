@@ -552,6 +552,13 @@ with col_title:
 with col_filter:
     seg_label = st.selectbox("Dimensi Segmen", list(SEG_DIMENSIONS.keys()), key="seg_dim_select")
 
+# 1. Konversi nilai mentah CES (skala 1-6) ke skala persentase (0-100)
+if "aksesibilitas_cabang_xyz" in df.columns:
+    df["ces_xyz_pct"] = ((df["aksesibilitas_cabang_xyz"] - 1) / (6 - 1)) * 100
+else:
+    df["ces_xyz_pct"] = np.nan
+
+# ── Batas Filter Segmen bawaan Anda ──
 seg_col = SEG_DIMENSIONS[seg_label]
 seg_base = min_n_filter(df, seg_col, min_n=5)
 
@@ -568,10 +575,12 @@ def segment_metrics(data, seg_col):
         else:
             nps = np.nan
         rows.append({
-            "segment": str(val), "n": len(g),
+            "segment": str(val), 
+            "n": len(g),
             "nps": nps,
             "csi": round(safe_mean(g["csi_xyz_pct"]), 1),
             "cli": round(safe_mean(g["cli_xyz_pct"]), 1),
+            "ces": round(safe_mean(g["ces_xyz_pct"]), 1),
         })
     return pd.DataFrame(rows)
 
@@ -584,18 +593,23 @@ else:
     rows_html = ""
     for r in seg_sorted.itertuples():
         nps_disp = f"{r.nps:+.0f}" if not pd.isna(r.nps) else "N/A"
+        
+        # Penanganan jika data CES kosong/NaN
+        ces_disp = mini_bar(r.ces, pct_color(r.ces)) if not pd.isna(r.ces) else '<span style="color:#9B7B5A;">N/A</span>'
+        
         rows_html += f"""<tr>
             <td class="metric-name">{r.segment}</td>
             <td style="color:#9B7B5A;font-size:11.5px;">{r.n}</td>
             <td><span class="risk-pill" style="background:{nps_color(r.nps)};">{nps_disp}</span></td>
             <td style="min-width:140px;">{mini_bar(r.csi, pct_color(r.csi))}</td>
             <td style="min-width:140px;">{mini_bar(r.cli, pct_color(r.cli))}</td>
+            <td style="min-width:140px;">{ces_disp}</td>
         </tr>"""
     st.markdown(f"""
     <div class="comp-table-wrap">
         <table class="comp-table">
             <thead><tr>
-                <th>{seg_label}</th><th>N</th><th>NPS</th><th>CSI</th><th>CLI</th>
+                <th>{seg_label}</th><th>N</th><th>NPS</th><th>CSI</th><th>CLI</th><th>CES</th>
             </tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
@@ -686,27 +700,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown(
-    '<p class="section-caption">Siapa yang berisiko berpindah — kombinasi CSI, CLI, dan NPS.</p>',
+    '<p class="section-caption">Siapa yang berisiko berpindah — kombinasi CSI, CLI, CES, dan NPS.</p>',
     unsafe_allow_html=True
 )
 
 # ────────────────────────────────────────────────────────────────────────────
-# Risk Classification
+# Risk Classification (Updated with CES)
 # ────────────────────────────────────────────────────────────────────────────
 def switching_risk(row):
     csi = row["csi_xyz_pct"] if not pd.isna(row["csi_xyz_pct"]) else 0
     cli = row["cli_xyz_pct"] if not pd.isna(row["cli_xyz_pct"]) else 0
+    ces = row["ces_xyz_pct"] if not pd.isna(row["ces_xyz_pct"]) else 0 # Menambahkan CES
     nps = row["nps_num"] if not pd.isna(row["nps_num"]) else 5
 
-    if csi >= 80 and cli >= 80 and nps >= 9:
+    # 1. Loyal: Puas, Setia, Rekomendasi Tinggi, dan Pengalaman Sangat Mudah
+    if csi >= 80 and cli >= 80 and ces >= 80 and nps >= 9:
         return "Loyal"
-    elif csi >= 75 and nps < 7:
+    
+    # 2. Vulnerable: Puas/Mudah tapi NPS rendah (Bisa jadi karena terpaksa/kurang promosi)
+    elif (csi >= 75 or ces >= 75) and nps < 7:
         return "Vulnerable"
-    elif csi < 70 and cli < 70 and nps < 7:
+    
+    # 3. At Risk: Semua metrik di bawah standar (Sangat berisiko pindah)
+    elif csi < 70 and cli < 70 and ces < 70 and nps < 7:
         return "At Risk"
+    
+    # 4. Netral: Sisanya
     else:
         return "Neutral"
 
+# Pastikan kolom ces_xyz_pct sudah terbuat di bagian atas sebelum baris apply ini dijalankan
 df["switching_risk"] = df.apply(switching_risk, axis=1)
 
 risk_colors = {
