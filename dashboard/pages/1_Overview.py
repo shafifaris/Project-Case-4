@@ -1056,7 +1056,7 @@ elif cli_pct < 80:
 # 5. CES
 if ces_score > 4:
     action_items.append(
-        ("🔴", f"CES tinggi: {ces_score} (Sulit)", "Perbaiki proses untuk mengurangi effort nasabah"))
+        ("🟢", f"CES tinggi: {ces_score} (Sulit)", "Perbaiki proses untuk mengurangi effort nasabah"))
 elif ces_score > 3:
     action_items.append(
         ("🟡", f"CES sedang: {ces_score}", "Optimasi alur layanan untuk memudahkan nasabah"))
