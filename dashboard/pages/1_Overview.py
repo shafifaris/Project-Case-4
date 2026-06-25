@@ -475,10 +475,12 @@ cef_pos_vals = {c: round(safe_mean(df[c]), 2)
                 for c in CEF_POS_COLS if c in df.columns}
 cef_neg_vals = {c: round(safe_mean(df[c]), 2)
                 for c in CEF_NEG_COLS if c in df.columns}
-avg_pos = float(np.mean(list(cef_pos_vals.values()))) if cef_pos_vals else 0.0
-avg_neg = float(np.mean(list(cef_neg_vals.values()))) if cef_neg_vals else 0.0
-total_emo = avg_pos + avg_neg
-emo_index = round(avg_pos / total_emo * 100, 1) if total_emo > 0 else 0.0
+
+# Skala 1–6 langsung dari rata-rata tiap grup
+avg_pos = round(float(np.mean(list(cef_pos_vals.values()))), 2) if cef_pos_vals else 0.0
+avg_neg = round(float(np.mean(list(cef_neg_vals.values()))), 2) if cef_neg_vals else 0.0
+
+# emo_index dihapus — display pakai avg_pos & avg_neg langsung
 
 top3_pos = sorted(cef_pos_vals.items(), key=lambda x: x[1], reverse=True)[:3]
 top3_neg = sorted(cef_neg_vals.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -728,7 +730,6 @@ with col_comp:
             + gap_row("Satisfaction (CSI)", csi_score, csi_komp_score, "/6")
             + gap_row("Loyalty (CLI)", cli_score, cli_komp_score, "/6")
             + gap_row("Brand Image Index", brand_index, brand_komp_index, "/6")
-            + gap_row("Customer Effort Score (CES)", ces_score, ces_komp_score, "/5") 
         )
 
         table_html = (
@@ -832,19 +833,41 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # CSS pendukung
 st.markdown(
-    '<style>'
-    '[data-testid="column"] > div { height: 100%; } '
-    '.idx-card { box-sizing: border-box; } '
-    '.compact-idx .idx-title { font-size: 10px; margin-bottom: 2px; } '
-    '.compact-idx .idx-value { font-size: 26px; margin-bottom: 1px; } '
-    '.compact-idx .idx-sub { font-size: 10px; margin-bottom: 4px; } '
-    '.compact-idx .idx-divider { margin: 6px 0; } '
-    '.compact-idx .idx-list-label { font-size: 9.5px; margin-bottom: 4px; } '
-    '.compact-idx .idx-item { padding: 3px 0; font-size: 11px; } '
-    '.compact-idx .mpi-bar-box { padding: 7px 10px; margin-top: 0; } '
-    '.compact-idx .mpi-bar-label { font-size: 10px; margin-bottom: 3px; } '
-    '.compact-idx .mpi-bar-track { height: 5px; } '
-    '</style>',
+    """
+    <style>
+    [data-testid="column"] > div { height: 100%; }
+    .idx-card { box-sizing: border-box; }
+    .compact-idx .idx-title  { font-size: 10px;   margin-bottom: 2px; }
+    .compact-idx .idx-value  { font-size: 26px;   margin-bottom: 1px; }
+    .compact-idx .idx-sub    { font-size: 10px;   margin-bottom: 4px; }
+    .compact-idx .idx-divider { margin: 6px 0; }
+    .compact-idx .idx-list-label { font-size: 9.5px; margin-bottom: 4px; }
+    .compact-idx .idx-item   { padding: 3px 0; font-size: 11px; }
+    .compact-idx .mpi-bar-box { padding: 7px 10px; margin-top: 0; }
+    .compact-idx .mpi-bar-label { font-size: 10px; margin-bottom: 3px; }
+    .compact-idx .mpi-bar-track { height: 5px; }
+
+    /* ── Equal-height columns ── */
+    [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        display: flex;
+        flex-direction: column;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > div {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > div > div {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] .idx-card {
+        flex: 1;
+    }
+    </style>
+    """,
     unsafe_allow_html=True
 )
 
@@ -860,11 +883,6 @@ col_emo, col_brand, col_mpi = st.columns([2, 2, 2])
 
 # ─ Emotional Index ─
 with col_emo:
-    emo_color = "#15803D" if emo_index >= 70 else (
-        "#B45309" if emo_index >= 50 else "#B91C1C")
-    emo_label = "Positif Dominan 😊" if emo_index >= 70 else (
-        "Seimbang 😐" if emo_index >= 50 else "Negatif 😟")
-
     pos_rows = ""
     for c, v in top3_pos:
         pos_rows += (
@@ -886,9 +904,23 @@ with col_emo:
     emo_card = (
         '<div class="idx-card compact-idx" style="display:flex;flex-direction:column;height:100%;">'
         '<div class="idx-title">Emotional Index</div>'
-        f'<div class="idx-value" style="color:{emo_color};">{emo_index}'
-        '<span style="font-size:16px;color:#9B7B5A;">/100</span></div>'
-        f'<div class="idx-sub">{emo_label}</div>'
+
+        '<div style="display:flex;gap:8px;margin:6px 0 4px;">'
+
+        '<div style="flex:1;background:#F0FDF4;border-radius:8px;padding:8px 10px;text-align:center;">'
+        '<div style="font-size:11px;color:#15803D;font-weight:600;margin-bottom:2px;">😊 Positif</div>'
+        f'<div style="font-size:22px;font-weight:700;color:#15803D;">{avg_pos:.2f}'
+        '<span style="font-size:12px;color:#9B7B5A;">/6</span></div>'
+        '</div>'
+
+        '<div style="flex:1;background:#FFF1F2;border-radius:8px;padding:8px 10px;text-align:center;">'
+        '<div style="font-size:11px;color:#B91C1C;font-weight:600;margin-bottom:2px;">😟 Negatif</div>'
+        f'<div style="font-size:22px;font-weight:700;color:#B91C1C;">{avg_neg:.2f}'
+        '<span style="font-size:12px;color:#9B7B5A;">/6</span></div>'
+        '</div>'
+
+        '</div>'
+
         '<hr class="idx-divider">'
         '<div class="idx-list-label pos">▲ Top Emosi Positif</div>'
         f'{pos_rows}'
@@ -943,7 +975,7 @@ with col_brand:
 # ─ MPI Bars ─
 with col_mpi:
     mpi_items = [
-        ("Bank Utama Dana", mpi_dana),
+        ("Bank Utama Dana",      mpi_dana),
         ("Bank Utama Transaksi", mpi_trx),
         ("Bank Aktif Digunakan", mpi_aktif),
     ]
