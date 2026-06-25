@@ -202,29 +202,51 @@ with st.sidebar:
     st.markdown("<hr style='border-color:rgba(245,212,138,0.12);margin:16px 0;'>", unsafe_allow_html=True)
     st.markdown("<div class='nav-label'>Filter Data</div>", unsafe_allow_html=True)
 
-    gender_opts = ["Semua"] + sorted(df_raw["jenis_kelamin"].dropna().unique().tolist())
-    sel_gender = st.selectbox("Gender", gender_opts)
+    prov_opts = sorted(df_raw["provinsi"].dropna().unique().tolist())
+    sel_prov = st.multiselect("Provinsi", prov_opts,
+                              placeholder="Semua Provinsi")
 
-    usia_opts = ["Semua"] + sorted(df_raw["range_usia"].dropna().unique().tolist(), key=usia_sort_key)
-    sel_usia = st.selectbox("Usia", usia_opts)
+    if sel_prov:
+        pool = df_raw[df_raw["provinsi"].isin(sel_prov)]
+    else:
+        pool = df_raw
 
-    job_opts = ["Semua"] + sorted(df_raw["pekerjaan"].dropna().unique().tolist())
-    sel_job = st.selectbox("Pekerjaan", job_opts)
+    kota_opts = sorted(pool["kab_kota"].dropna().unique().tolist())
+    sel_kota = st.multiselect(
+        "Kota/Kabupaten", kota_opts, placeholder="Semua Kota/Kab")
+    if sel_kota:
+        pool2 = pool[pool["kab_kota"].isin(sel_kota)]
+    else:
+        pool2 = pool
 
-    seg_opts = ["Semua"] + sorted(df_raw["kategori_nasabah"].dropna().unique().tolist())
-    sel_seg = st.selectbox("Kategori Nasabah", seg_opts)
+    branch_opts = sorted(pool2["nama_cabang"].dropna().unique().tolist())
+    sel_branch = st.multiselect(
+        "Cabang", branch_opts, placeholder="Semua Cabang")
 
-    st.markdown("<hr style='border-color:rgba(245,212,138,0.12);margin:16px 0;'>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:9.5px;color:rgba(245,212,138,0.30);padding:0 4px;'>v3.2 · Bank XYZ Analytics</div>", unsafe_allow_html=True)
+    panel_opts = ["Semua", "Teller", "CS"]
+    sel_panel = st.selectbox("Panel", panel_opts)
 
-# ════════════════════════════════════════════════════════════════════════════
-# FILTER
-# ════════════════════════════════════════════════════════════════════════════
+    usia_opts = sorted(df_raw["range_usia"].dropna().unique().tolist())
+    sel_usia = st.multiselect("Usia", usia_opts, placeholder="Semua Usia")
+
+    st.markdown("<hr style='border-color:rgba(245,212,138,0.12);margin:16px 0;'>",
+                unsafe_allow_html=True)
+    st.markdown("<div style='font-size:9.5px;color:rgba(245,212,138,0.30);padding:0 4px;'>v3.1 · Bank XYZ Analytics</div>", unsafe_allow_html=True)
+
+# ── FILTER ────────────────────────────────────────────────────────────────────
 df = df_raw.copy()
-if sel_gender != "Semua": df = df[df["jenis_kelamin"] == sel_gender]
-if sel_usia   != "Semua": df = df[df["range_usia"] == sel_usia]
-if sel_job    != "Semua": df = df[df["pekerjaan"] == sel_job]
-if sel_seg    != "Semua": df = df[df["kategori_nasabah"] == sel_seg]
+
+if sel_prov:
+    df = df[df["provinsi"].isin(sel_prov)]
+if sel_kota:
+    df = df[df["kab_kota"].isin(sel_kota)]
+if sel_branch:
+    df = df[df["nama_cabang"].isin(sel_branch)]
+if sel_panel != "Semua":
+    panel_map = {"Teller": "Teller (KUOTA 50%)", "CS": "CS (KUOTA 50%)"}
+    df = df[df["panel_transaksi"] == panel_map[sel_panel]]
+if sel_usia:
+    df = df[df["range_usia"].isin(sel_usia)]
 
 n = len(df)
 

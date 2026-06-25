@@ -303,19 +303,51 @@ with st.sidebar:
     st.markdown("<hr style='border-color:rgba(245,212,138,0.12);margin:16px 0;'>", unsafe_allow_html=True)
     st.markdown("<div class='nav-label'>Filter Data</div>", unsafe_allow_html=True)
 
-    prov_opts = ["Semua"] + sorted(df_raw["provinsi"].dropna().unique().tolist())
-    sel_prov = st.selectbox("Provinsi", prov_opts)
+    prov_opts = sorted(df_raw["provinsi"].dropna().unique().tolist())
+    sel_prov = st.multiselect("Provinsi", prov_opts,
+                              placeholder="Semua Provinsi")
 
-    seg_opts = ["Semua"] + sorted(df_raw["kategori_nasabah"].dropna().unique().tolist())
-    sel_seg = st.selectbox("Segmen Nasabah", seg_opts)
+    if sel_prov:
+        pool = df_raw[df_raw["provinsi"].isin(sel_prov)]
+    else:
+        pool = df_raw
 
-    st.markdown("<hr style='border-color:rgba(245,212,138,0.12);margin:16px 0;'>", unsafe_allow_html=True)
+    kota_opts = sorted(pool["kab_kota"].dropna().unique().tolist())
+    sel_kota = st.multiselect(
+        "Kota/Kabupaten", kota_opts, placeholder="Semua Kota/Kab")
+    if sel_kota:
+        pool2 = pool[pool["kab_kota"].isin(sel_kota)]
+    else:
+        pool2 = pool
+
+    branch_opts = sorted(pool2["nama_cabang"].dropna().unique().tolist())
+    sel_branch = st.multiselect(
+        "Cabang", branch_opts, placeholder="Semua Cabang")
+
+    panel_opts = ["Semua", "Teller", "CS"]
+    sel_panel = st.selectbox("Panel", panel_opts)
+
+    usia_opts = sorted(df_raw["range_usia"].dropna().unique().tolist())
+    sel_usia = st.multiselect("Usia", usia_opts, placeholder="Semua Usia")
+
+    st.markdown("<hr style='border-color:rgba(245,212,138,0.12);margin:16px 0;'>",
+                unsafe_allow_html=True)
     st.markdown("<div style='font-size:9.5px;color:rgba(245,212,138,0.30);padding:0 4px;'>v3.1 · Bank XYZ Analytics</div>", unsafe_allow_html=True)
 
 # ── FILTER ────────────────────────────────────────────────────────────────────
 df = df_raw.copy()
-if sel_prov != "Semua": df = df[df["provinsi"] == sel_prov]
-if sel_seg  != "Semua": df = df[df["kategori_nasabah"] == sel_seg]
+
+if sel_prov:
+    df = df[df["provinsi"].isin(sel_prov)]
+if sel_kota:
+    df = df[df["kab_kota"].isin(sel_kota)]
+if sel_branch:
+    df = df[df["nama_cabang"].isin(sel_branch)]
+if sel_panel != "Semua":
+    panel_map = {"Teller": "Teller (KUOTA 50%)", "CS": "CS (KUOTA 50%)"}
+    df = df[df["panel_transaksi"] == panel_map[sel_panel]]
+if sel_usia:
+    df = df[df["range_usia"].isin(sel_usia)]
 
 n = len(df)
 
@@ -566,7 +598,7 @@ with col_bg1:
         **PLOT,
         xaxis=dict(color="#9B7B5A", gridcolor="#F3EBE1", title="Gap (XYZ − Kompetitor, skala /6)"),
         yaxis=dict(color="#374151", tickfont=dict(size=11, family="Inter"), autorange="reversed"),
-        margin=dict(t=10, b=20, l=10, r=70), height=360,
+        margin=dict(t=10, b=20, l=10, r=70), height=500,
     )
 
     st.markdown("""<div class="card card-accent-maroon">

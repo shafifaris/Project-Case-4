@@ -151,12 +151,12 @@ div[data-testid="stVerticalBlockBorderWrapper"]::before {
 
 # Mapping nama provinsi dari data ke KEY GeoJSON (NAME_1) agar konsisten dengan Overview
 PROV_GEO_MAP = {
-    "DKI Jakarta":      "JakartaRaya",
-    "Jawa Barat":       "JawaBarat",
-    "Jawa Tengah":      "JawaTengah",
-    "Jawa Timur":       "JawaTimur",
-    "Banten":           "Banten",
-    "Bali":             "Bali",
+    "DKI Jakarta":       "JakartaRaya",
+    "Jawa Barat":        "JawaBarat",
+    "Jawa Tengah":       "JawaTengah",
+    "Jawa Timur":        "JawaTimur",
+    "Banten":            "Banten",
+    "Bali":              "Bali",
     "Sumatera Utara":   "SumateraUtara",
     "Sumatera Selatan": "SumateraSelatan",
     "Lampung":          "Lampung",
@@ -173,7 +173,7 @@ DETAIL_GROUPS = {
         'tp_bh_jumlah_cabang_xyz', 'tp_bh_weekend_banking_xyz', 'tp_bh_penampilan_gedung_xyz',
         'tp_bh_area_parkir_xyz', 'tp_bh_kebersihan_parkir_xyz', 'tp_bh_kebersihan_masuk_xyz',
         'tp_bh_kebersihan_hall_xyz', 'tp_bh_tempat_duduk_xyz', 'tp_bh_ac_sejuk_xyz',
-        'tp_bh_ruang_tunggu_nyaman_xyz', 'tp_bh_wifi_xyz', 'tp_bh_tv_xyz', 'tp_bh_wangi_xyz',
+        'ruang_tunggu_nyaman_xyz', 'tp_bh_wifi_xyz', 'tp_bh_tv_xyz', 'tp_bh_wangi_xyz',
         'tp_bh_bersih_xyz', 'tp_bh_signage_pelayanan_xyz', 'tp_bh_kerapian_xyz', 'tp_bh_tata_letak_xyz',
         'tp_bh_ada_toilet_xyz', 'tp_bh_toilet_bersih_xyz', 'tp_bh_toilet_harum_xyz',
     ],
@@ -213,7 +213,7 @@ DETAIL_COLS = [c for cols in DETAIL_GROUPS.values() for c in cols]
 OVERALL_COLS = [
     'overall_teller_xyz', 'overall_cs_xyz', 'overall_atm_xyz', 'overall_banking_hall_xyz',
     'overall_sekuriti_xyz', 'overall_operasional_xyz', 'overall_ca_xyz',
-    'overall_parkir_xyz', 'overall_toilet_xyz', 'csi_xyz', 'cli_xyz',
+    'overall_parkir_xyz', 'overall_toilet_xyz', 'csi_xyz', 'cli_xyz', 'aksesibilitas_cabang_xyz',
 ]
 TIME_COLS = [
     'waktu_tunggu_teller_aktual', 'waktu_tunggu_teller_toleransi',
@@ -226,6 +226,9 @@ TIME_COLS = [
 def load_data_and_geojson():
     BASE = os.path.dirname(os.path.abspath(__file__))
     df = pd.read_excel(os.path.join(BASE, "..", "df_new.xlsx"))
+
+    # Bersihkan nama kolom dari spasi tidak sengaja
+    df.columns = df.columns.str.strip()
 
     def parse_nps(val):
         if pd.isna(val) or str(val).strip() == '':
@@ -241,13 +244,32 @@ def load_data_and_geojson():
             'Passive' if v >= 7 else 'Detractor')
         if not pd.isna(v) else np.nan)
 
+    # Fungsi pembantu untuk mengekstrak angka dari teks skala (misal: "6 Sangat Mudah" -> 6)
+    def clean_to_numeric(val):
+        if pd.isna(val) or str(val).strip() == '':
+            return np.nan
+        try:
+            # Ambil karakter angka pertama jika berbentuk teks kombinasi
+            return pd.to_numeric(str(val).strip().split()[0], errors='coerce')
+        except:
+            return np.nan
+
+    # Terapkan konversi numerik ke semua kolom metrik
     for c in OVERALL_COLS + DETAIL_COLS + TIME_COLS:
         if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce')
+            # Jika kolom bertipe string/object, bersihkan teksnya dahulu
+            if df[c].dtype == 'object':
+                df[c] = df[c].apply(clean_to_numeric)
+            else:
+                df[c] = pd.to_numeric(df[c], errors='coerce')
 
+    # Buat kolom persentase (_pct)
     for c in OVERALL_COLS + DETAIL_COLS:
         if c in df.columns:
             df[c + '_pct'] = (df[c] / 6 * 100).round(1)
+        else:
+            # Antisipasi jika kolom tetap tidak terbuat agar aplikasi tidak crash
+            df[c + '_pct'] = np.nan
 
     # Load GeoJSON untuk Map
     geojson_path = os.path.join(BASE, "..", "indonesia_provinces.json")
@@ -380,13 +402,10 @@ if sel_usia:
 n = len(df)
 
 # ════════════════════════════════════════════════════════════════════════════
-# COMPUTED METRICS — BRANCH LEVEL
-# ════════════════════════════════════════════════════════════════════════════
-# ════════════════════════════════════════════════════════════════════════════
 # COMPUTED METRICS — BRANCH LEVEL (DIPERBAIKI)
 # ════════════════════════════════════════════════════════════════════════════
 
-# ── HITUNG NPS AGREGAT (SAMA DENGAN OVERVIEW) ──
+# ── HITUNG NPS AGREGAT ──
 total_promoters = int((df["nps_category"] == "Promoter").sum())
 total_detractors = int((df["nps_category"] == "Detractor").sum())
 total_responses = len(df)
@@ -394,24 +413,23 @@ avg_nps_agregat = round((total_promoters - total_detractors) /
                         total_responses * 100, 1) if total_responses > 0 else 0.0
 
 if n > 0:
-    # Hitung NPS per cabang dengan rumus yang benar (agregat per cabang)
     branch_nps_agg = df.groupby("nama_cabang").agg(
         total_responden=("serial_id", "count"),
         promoters=("nps_category", lambda x: (x == "Promoter").sum()),
         detractors=("nps_category", lambda x: (x == "Detractor").sum()),
     ).reset_index()
 
-    # Hitung NPS score per cabang dengan rumus: (Promoter - Detractor) / Total * 100
     branch_nps_agg["nps_score"] = (
         (branch_nps_agg["promoters"] - branch_nps_agg["detractors"]) /
         branch_nps_agg["total_responden"] * 100
     ).round(1)
 
-    # Gabungkan dengan statistik lainnya
     branch_stats = df.groupby(["nama_cabang", "provinsi", "kab_kota"]).agg(
         responden=("serial_id", "count"),
         csi_pct=("csi_xyz_pct", "mean"),
         cli_pct=("cli_xyz_pct", "mean"),
+        # CES menggunakan kolom _pct yang sudah diselaraskan di load_data
+        ces_pct=("aksesibilitas_cabang_xyz_pct", "mean"),
         wait_teller=("waktu_tunggu_teller_aktual", "mean"),
         tol_teller=("waktu_tunggu_teller_toleransi", "mean"),
         wait_cs=("waktu_tunggu_cs_aktual", "mean"),
@@ -420,7 +438,6 @@ if n > 0:
         add_cs=("waktu_ideal_tambah_cs", "mean"),
     ).reset_index()
 
-    # Merge dengan NPS
     branch_stats = branch_stats.merge(
         branch_nps_agg[["nama_cabang", "nps_score"]],
         on="nama_cabang",
@@ -429,16 +446,17 @@ if n > 0:
 
     branch_stats["csi_pct"] = branch_stats["csi_pct"].round(1)
     branch_stats["cli_pct"] = branch_stats["cli_pct"].round(1)
+    branch_stats["ces_pct"] = branch_stats["ces_pct"].round(1)
     branch_stats["gap_teller"] = (
         branch_stats["wait_teller"] - branch_stats["tol_teller"]).round(1)
     branch_stats["gap_cs"] = (
         branch_stats["wait_cs"] - branch_stats["tol_cs"]).round(1)
 else:
-    branch_stats = pd.DataFrame(columns=["nama_cabang", "provinsi", "kab_kota", "responden", "csi_pct", "cli_pct",
+    branch_stats = pd.DataFrame(columns=["nama_cabang", "provinsi", "kab_kota", "responden", "csi_pct", "cli_pct", "ces_pct",
                                          "wait_teller", "tol_teller", "wait_cs", "tol_cs", "add_teller", "add_cs",
                                          "nps_score", "gap_teller", "gap_cs"])
 
-METRIC_COL = {"CSI": "csi_pct", "NPS": "nps_score", "CLI": "cli_pct"}
+METRIC_COL = {"CSI": "csi_pct", "NPS": "nps_score", "CLI": "cli_pct", "CES": "ces_pct"}
 
 # ════════════════════════════════════════════════════════════════════════════
 # PAGE HEADER
@@ -451,53 +469,51 @@ st.markdown(f"""
 </div>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
-# KPI ROW — RINGKASAN CABANG
-# ════════════════════════════════════════════════════════════════════════════
-# ════════════════════════════════════════════════════════════════════════════
-# KPI ROW — RINGKASAN CABANG (DIPERBAIKI)
+# KPI ROW — RINGKASAN CABANG (DIPERBAIKI DENGAN RATA-RATA TERTIMBANG)
 # ════════════════════════════════════════════════════════════════════════════
 st.markdown(section_label("Ringkasan Cabang"), unsafe_allow_html=True)
 
-avg_csi = round(safe_mean(branch_stats["csi_pct"]), 1) if len(
-    branch_stats) > 0 else 0.0
-n_critical = int(((branch_stats["csi_pct"] < 65) | (
-    branch_stats["nps_score"] < 20)).sum()) if len(branch_stats) > 0 else 0
+# Perbaikan Statistik: Menggunakan Weighted Average agar akurat dan konsisten dengan level data mentah
+if len(branch_stats) > 0 and branch_stats["responden"].sum() > 0:
+    total_n = branch_stats["responden"].sum()
+    avg_csi = round((branch_stats["csi_pct"] * branch_stats["responden"]).sum() / total_n, 1)
+    avg_ces = round((branch_stats["ces_pct"] * branch_stats["responden"]).sum() / total_n, 1)
+    n_critical = int(((branch_stats["csi_pct"] < 65) | (branch_stats["nps_score"] < 20)).sum())
+else:
+    avg_csi = 0.0
+    avg_ces = 0.0
+    n_critical = 0
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    c1.markdown(f"""<div class="exec-card maroon">
+    st.markdown(f"""<div class="exec-card maroon">
         <span class="exec-icon">▣</span>
         <div class="exec-label">Total Cabang Aktif</div>
         <div class="exec-value" style="color:#3D0812;">{df['nama_cabang'].nunique()}</div>
         <div class="exec-sub">Tersebar di {df['provinsi'].nunique()} provinsi</div>
     </div>""", unsafe_allow_html=True)
 with c2:
-    # Gunakan avg_nps_agregat yang sama dengan Overview
-    bc = "badge-green" if avg_nps_agregat >= 50 else (
-        "badge-yellow" if avg_nps_agregat >= 20 else "badge-red")
-    lbl = "Excellent" if avg_nps_agregat >= 50 else (
-        "Good" if avg_nps_agregat >= 20 else "Needs Attention")
-    c2.markdown(f"""<div class="exec-card gold">
+    bc = "badge-green" if avg_nps_agregat >= 50 else ("badge-yellow" if avg_nps_agregat >= 20 else "badge-red")
+    lbl = "Excellent" if avg_nps_agregat >= 50 else ("Good" if avg_nps_agregat >= 20 else "Needs Attention")
+    st.markdown(f"""<div class="exec-card gold">
         <span class="exec-icon">📊</span>
-        <div class="exec-label">Agregat NPS</div>
-        <div class="exec-value" style="color:#7A5100;">{avg_nps_agregat}</div>
+        <div class="exec-label">Agregat NPS / Avg CES</div>
+        <div class="exec-value" style="color:#7A5100;">{avg_nps_agregat} <span style="font-size:16px;color:#9B7B5A;">/ {avg_ces}%</span></div>
         <div class="exec-sub">Seluruh responden ({total_responses:,})</div>
         <span class="exec-badge {bc}">{lbl}</span>
     </div>""", unsafe_allow_html=True)
 with c3:
-    bc3 = "badge-green" if avg_csi >= 80 else (
-        "badge-yellow" if avg_csi >= 65 else "badge-red")
-    lbl3 = "Excellent" if avg_csi >= 80 else (
-        "Good" if avg_csi >= 65 else "Needs Attention")
-    c3.markdown(f"""<div class="exec-card teal">
+    bc3 = "badge-green" if avg_csi >= 80 else ("badge-yellow" if avg_csi >= 65 else "badge-red")
+    lbl3 = "Excellent" if avg_csi >= 80 else ("Good" if avg_csi >= 65 else "Needs Attention")
+    st.markdown(f"""<div class="exec-card teal">
         <span class="exec-icon">⭐</span>
         <div class="exec-label">Rata-rata CSI Cabang</div>
         <div class="exec-value" style="color:#0F5E5A;">{avg_csi}<span style="font-size:16px;color:#9B7B5A;">%</span></div>
-        <div class="exec-sub">Dari skala penuh</div>
+        <div class="exec-sub">Weighted average dari skala penuh</div>
         <span class="exec-badge {bc3}">{lbl3}</span>
     </div>""", unsafe_allow_html=True)
 with c4:
-    c4.markdown(f"""<div class="exec-card red">
+    st.markdown(f"""<div class="exec-card red">
         <span class="exec-icon">⚠</span>
         <div class="exec-label">Cabang Perlu Perhatian</div>
         <div class="exec-value" style="color:#B91C1C;">{n_critical}</div>
@@ -507,40 +523,37 @@ with c4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
-# 1. GEOGRAPHIC PERFORMANCE MAP (SYNCHRONIZED WITH OVERVIEW SCRIPT)
+# 1. GEOGRAPHIC PERFORMANCE MAP
 # ════════════════════════════════════════════════════════════════════════════
-st.markdown(section_label("Geographic Performance Map"),
-            unsafe_allow_html=True)
+st.markdown(section_label("Geographic Performance Map"), unsafe_allow_html=True)
 
 with st.container(border=True):
     top_row = st.columns([1, 3])
     with top_row[0]:
-        map_metric = st.selectbox(
-            "Metric", ["CSI", "NPS", "CLI"], key="map_metric")
-    st.markdown(
-        f'<div class="idx-title">Performa Cabang per Provinsi — {map_metric}</div>', unsafe_allow_html=True)
+        map_metric = st.selectbox("Metric", ["CSI", "NPS", "CLI", "CES"], key="map_metric")
+    st.markdown(f'<div class="idx-title">Performa Cabang per Provinsi — {map_metric}</div>', unsafe_allow_html=True)
 
     if len(branch_stats) > 0 and indonesia_geojson is not None:
         metric_col_map = METRIC_COL[map_metric]
-        prov_geo = branch_stats.groupby("provinsi").agg(
-            responden=("responden", "sum"),
-            value=(metric_col_map, "mean"),
+        
+        # Perbaikan Statistik: Groupby provinsi menggunakan weighted average berdasarkan responden cabang
+        prov_geo = branch_stats.groupby("provinsi").apply(
+            lambda x: pd.Series({
+                "responden": x["responden"].sum(),
+                "value": (x[metric_col_map] * x["responden"]).sum() / x["responden"].sum() if x["responden"].sum() > 0 else 0.0
+            })
         ).reset_index()
         prov_geo["value"] = prov_geo["value"].round(1)
 
-        # Tambahkan properti mapping geo_name agar serasi dengan target properties.NAME_1 di GeoJSON
         prov_geo["geo_name"] = prov_geo["provinsi"].map(PROV_GEO_MAP)
         prov_geo = prov_geo.dropna(subset=["geo_name"])
 
-# Menggunakan go.Choropleth berbasis data JSON/GeoJSON yang selaras dengan halaman Overview
         fig_map = go.Figure(go.Choropleth(
             geojson=indonesia_geojson,
             featureidkey="properties.NAME_1",
             locations=prov_geo["geo_name"],
             z=prov_geo["value"],
-            colorscale=[[0, "#db7332"], [0.5, "#f59e0b"], [1, "#10b981"]] if map_metric != "NPS" else [
-                [0, "#ef4444"], [0.5, "#f59e0b"], [1, "#10b981"]],
-            # Mengubah garis batas provinsi menjadi putih agar lebih clean
+            colorscale=[[0, "#db7332"], [0.5, "#f59e0b"], [1, "#10b981"]] if map_metric != "NPS" else [[0, "#ef4444"], [0.5, "#f59e0b"], [1, "#10b981"]],
             marker_line_color='#ffffff',
             marker_line_width=0.7,
             colorbar=dict(
@@ -548,8 +561,7 @@ with st.container(border=True):
                 len=0.7,
                 x=1.0,
                 tickfont=dict(color="#374151", size=10),
-                title=dict(text=f"Score<br>{map_metric}", font=dict(
-                    color="#374151", size=11))
+                title=dict(text=f"Score<br>{map_metric}", font=dict(color="#374151", size=11))
             ),
             customdata=prov_geo[["provinsi", "responden", "value"]].values,
             hovertemplate=(
@@ -559,41 +571,33 @@ with st.container(border=True):
             ),
         ))
 
-        # ── PERBAIKAN KONFIGURASI ZOOM & BACKGROUND ──
         fig_map.update_geos(
             scope="asia",
-            center=dict(lat=-2.5, lon=118),    # Titik tengah ekuator Indonesia
-            # Skala 1.6 - 1.8 ideal untuk menangkap Sabang sampai Merauke tanpa terpotong
+            center=dict(lat=-2.5, lon=118),
             projection_scale=1.0,
             bgcolor="rgba(0,0,0,0)",
-            # Dimatikan agar base-map dunia bawaan tidak menimpa file GeoJSON Anda
             showland=False,
             showocean=True,
-            # Warna latar belakang laut (gelap/navy tua agar warna provinsi menyala)
             oceancolor="#0f172a",
             showcoastlines=False,
             showcountries=False,
             showframe=False,
-            # Batas bujur barat ke timur Indonesia
             lonaxis=dict(range=[94, 142]),
-            # Batas lintang selatan ke utara Indonesia
             lataxis=dict(range=[-11, 6]),
             visible=False
         )
 
         fig_map.update_layout(
             **PLOT,
-            height=500,                        # Menaikkan sedikit tinggi map agar lebih leluasa
+            height=500,
             margin=dict(t=0, b=0, l=0, r=0),
             showlegend=False
         )
         st.plotly_chart(fig_map, use_container_width=True)
     elif indonesia_geojson is None:
-        st.warning(
-            "Berkas `indonesia_provinces.json` tidak ditemukan di folder utama. Silakan unggah berkas GeoJSON terlebih dahulu.")
+        st.warning("Berkas `indonesia_provinces.json` tidak ditemukan di folder utama. Silakan unggah berkas GeoJSON terlebih dahulu.")
     else:
-        st.markdown(
-            "<div style='color:#000000;font-size:12px;padding:20px;'>Tidak ada data untuk filter yang dipilih.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#000000;font-size:12px;padding:20px;'>Tidak ada data untuk filter yang dipilih.</div>", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 # 2. BRANCH RANKING
@@ -602,84 +606,50 @@ st.markdown(section_label("Branch Ranking"), unsafe_allow_html=True)
 
 rank_top = st.columns([1, 3])
 with rank_top[0]:
-    rank_metric = st.selectbox("Ranking berdasarkan", [
-                               "CSI", "NPS", "CLI"], key="rank_metric")
+    rank_metric = st.selectbox("Ranking berdasarkan", ["CSI", "NPS", "CLI", "CES"], key="rank_metric")
 metric_col_rank = METRIC_COL[rank_metric]
 suffix_rank = "" if rank_metric == "NPS" else "%"
 
-valid_rank = branch_stats.dropna(subset=[metric_col_rank]) if len(
-    branch_stats) > 0 else branch_stats
+valid_rank = branch_stats.dropna(subset=[metric_col_rank]) if len(branch_stats) > 0 else branch_stats
 col_top, col_bot = st.columns(2)
 
 with col_top:
     with st.container(border=True):
-        st.markdown(
-            f'<div class="idx-title">▲ Top 10 Cabang — {rank_metric}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="idx-title">▲ Top 10 Cabang — {rank_metric}</div>', unsafe_allow_html=True)
         if len(valid_rank) > 0:
-            top10 = valid_rank.nlargest(
-                10, metric_col_rank).sort_values(metric_col_rank)
+            top10 = valid_rank.nlargest(10, metric_col_rank).sort_values(metric_col_rank)
             fig_top = go.Figure(go.Bar(
                 x=top10[metric_col_rank], y=top10["nama_cabang"], orientation="h",
                 marker_color="#15803D",
-                text=[
-                    f"<b>{v:.1f}{suffix_rank}</b>" for v in top10[metric_col_rank]],
+                text=[f"<b>{v:.1f}{suffix_rank}</b>" for v in top10[metric_col_rank]],
                 textposition="outside", textfont=dict(color="#000000", size=10)
             ))
             fig_top.update_layout(**PLOT,
-                                  xaxis=dict(
-                                      color="#3D0812",          # Mengubah warna teks angka X-axis menjadi Maroon Gelap
-                                      gridcolor="#EEE4D8",
-                                      # Menggunakan weight="bold"
-                                      tickfont=dict(size=11, weight="bold"),
-                                      range=[0, 115]
-                                  ),
-                                  yaxis=dict(
-                                      color="#3D0812",          # Mengubah warna nama cabang menjadi Maroon Gelap
-                                      # Menggunakan weight="bold"
-                                      tickfont=dict(size=11, weight="bold")
-                                  ),
-                                  margin=dict(t=20, b=20, l=20, r=90),
-                                  height=340
-                                  )
+                                  xaxis=dict(color="#3D0812", gridcolor="#EEE4D8", tickfont=dict(size=11, weight="bold"), range=[0, 115]),
+                                  yaxis=dict(color="#3D0812", tickfont=dict(size=11, weight="bold")),
+                                  margin=dict(t=20, b=20, l=20, r=90), height=340)
             st.plotly_chart(fig_top, use_container_width=True)
         else:
-            st.markdown(
-                "<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
 
 with col_bot:
     with st.container(border=True):
-        st.markdown(
-            f'<div class="idx-title">▼ Bottom 10 Cabang — {rank_metric}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="idx-title">▼ Bottom 10 Cabang — {rank_metric}</div>', unsafe_allow_html=True)
         if len(valid_rank) > 0:
-            bot10 = valid_rank.nsmallest(10, metric_col_rank).sort_values(
-                metric_col_rank, ascending=False)
+            bot10 = valid_rank.nsmallest(10, metric_col_rank).sort_values(metric_col_rank, ascending=False)
             fig_bot = go.Figure(go.Bar(
                 x=bot10[metric_col_rank], y=bot10["nama_cabang"], orientation="h",
                 marker_color="#B91C1C",
-                text=[
-                    f"<b>{v:.1f}{suffix_rank}</b>" for v in bot10[metric_col_rank]],
+                text=[f"<b>{v:.1f}{suffix_rank}</b>" for v in bot10[metric_col_rank]],
                 textposition="outside", textfont=dict(color="#000000", size=10)
             ))
             fig_bot.update_layout(**PLOT,
-                                  xaxis=dict(
-                                      color="#3D0812",          # Mengubah warna teks angka X-axis menjadi Maroon Gelap
-                                      gridcolor="#EEE4D8",
-                                      # Menggunakan weight="bold"
-                                      tickfont=dict(size=11, weight="bold"),
-                                      range=[0, 115]
-                                  ),
-                                  yaxis=dict(
-                                      color="#3D0812",          # Mengubah warna nama cabang menjadi Maroon Gelap
-                                      # Menggunakan weight="bold"
-                                      tickfont=dict(size=11, weight="bold")
-                                  ),
-                                  margin=dict(t=20, b=20, l=20, r=90),
-                                  height=340
-                                  )
+                                  xaxis=dict(color="#3D0812", gridcolor="#EEE4D8", tickfont=dict(size=11, weight="bold"), range=[0, 115]),
+                                  yaxis=dict(color="#3D0812", tickfont=dict(size=11, weight="bold")),
+                                  margin=dict(t=20, b=20, l=20, r=90), height=340)
             st.plotly_chart(fig_bot, use_container_width=True)
         else:
-            st.markdown(
-                "<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 # 3. BRANCH DRIVER ANALYSIS
@@ -696,18 +666,13 @@ DRIVER_TP = [(lbl, c) for lbl, c in DRIVER_TP if c in df.columns]
 
 with st.container(border=True):
     if len(branch_stats) > 0:
-        branch_list_sorted = branch_stats.sort_values(
-            "csi_pct")["nama_cabang"].tolist()
-        sel_driver_branch = st.selectbox(
-            "Pilih Cabang untuk Dianalisis", branch_list_sorted, index=0, key="driver_branch")
-        st.markdown(
-            f'<div class="idx-title">Mengapa performa cabang ini seperti ini? — {sel_driver_branch}</div>', unsafe_allow_html=True)
+        branch_list_sorted = branch_stats.sort_values("csi_pct")["nama_cabang"].tolist()
+        sel_driver_branch = st.selectbox("Pilih Cabang untuk Dianalisis", branch_list_sorted, index=0, key="driver_branch")
+        st.markdown(f'<div class="idx-title">Mengapa performa cabang ini seperti ini? — {sel_driver_branch}</div>', unsafe_allow_html=True)
 
         branch_df_sel = df[df["nama_cabang"] == sel_driver_branch]
-        network_avg = {lbl: round(safe_mean(df[col]), 1)
-                       for lbl, col in DRIVER_TP}
-        branch_val = {lbl: round(
-            safe_mean(branch_df_sel[col]), 1) for lbl, col in DRIVER_TP}
+        network_avg = {lbl: round(safe_mean(df[col]), 1) for lbl, col in DRIVER_TP}
+        branch_val = {lbl: round(safe_mean(branch_df_sel[col]), 1) for lbl, col in DRIVER_TP}
 
         labels_d = list(branch_val.keys())
         vals_d = [branch_val[l] for l in labels_d]
@@ -726,25 +691,21 @@ with st.container(border=True):
             marker=dict(color="#3D0812", size=6),
         ))
         fig_drv.update_layout(**PLOT,
-                              yaxis=dict(
-                                  range=[0, 118], color="#000000", gridcolor="#EEE4D8", title="%"),
+                              yaxis=dict(range=[0, 118], color="#000000", gridcolor="#EEE4D8", title="%"),
                               xaxis=dict(color="#000000"),
-                              legend=dict(font=dict(size=10, color="#000000"),
-                                          orientation="h", x=0, y=1.14),
+                              legend=dict(font=dict(size=10, color="#000000"), orientation="h", x=0, y=1.14),
                               margin=dict(t=46, b=10, l=10, r=10), height=340)
         st.plotly_chart(fig_drv, use_container_width=True)
 
         if vals_d:
-            weakest_lbl, weakest_val = min(
-                branch_val.items(), key=lambda x: x[1])
+            weakest_lbl, weakest_val = min(branch_val.items(), key=lambda x: x[1])
             st.markdown(f"""<div class="insight-box">
                 💡 Touchpoint paling lemah di <b>{sel_driver_branch}</b> adalah
                 <b style="color:#B91C1C;">{weakest_lbl}</b> ({weakest_val}%) —
                 masalah cabang ini kemungkinan besar berasal dari area tersebut, bukan dari keseluruhan operasional cabang.
             </div>""", unsafe_allow_html=True)
     else:
-        st.markdown(
-            "<div style='color:#000000;font-size:12px;'>Tidak ada data untuk filter yang dipilih.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#000000;font-size:12px;'>Tidak ada data untuk filter yang dipilih.</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -756,220 +717,125 @@ st.markdown(section_label("Service Bottleneck"), unsafe_allow_html=True)
 col_g1, col_g2 = st.columns(2)
 with col_g1:
     with st.container(border=True):
-        st.markdown(
-            '<div class="idx-title">⏱ Worst Waiting Time — Teller</div>', unsafe_allow_html=True)
-        gt = branch_stats.dropna(subset=["gap_teller"]) if len(
-            branch_stats) > 0 else branch_stats
+        st.markdown('<div class="idx-title">⏱ Worst Waiting Time — Teller</div>', unsafe_allow_html=True)
+        gt = branch_stats.dropna(subset=["gap_teller"]) if len(branch_stats) > 0 else branch_stats
         if len(gt) > 0:
-            worst_teller = gt.nlargest(
-                10, "gap_teller").sort_values("gap_teller")
+            worst_teller = gt.nlargest(10, "gap_teller").sort_values("gap_teller")
             fig_gt = go.Figure(go.Bar(
                 x=worst_teller["gap_teller"], y=worst_teller["nama_cabang"], orientation="h",
-                marker_color=[
-                    "#B91C1C" if v > 0 else "#15803D" for v in worst_teller["gap_teller"]],
-                text=[
-                    f"<b>{'+' if v >= 0 else ''}{v:.1f} mnt</b>" for v in worst_teller["gap_teller"]],
+                marker_color=["#B91C1C" if v > 0 else "#15803D" for v in worst_teller["gap_teller"]],
+                text=[f"<b>{'+' if v >= 0 else ''}{v:.1f} mnt</b>" for v in worst_teller["gap_teller"]],
                 textposition="outside", textfont=dict(size=9, color="#000000"),
             ))
             fig_gt.update_layout(**PLOT, height=320, margin=dict(t=10, b=10, l=10, r=60),
-                                 xaxis=dict(
-                                     title="Gap Aktual − Toleransi (menit)", color="#000000", gridcolor="#EEE4D8"),
+                                 xaxis=dict(title="Gap Aktual − Toleransi (menit)", color="#000000", gridcolor="#EEE4D8"),
                                  yaxis=dict(tickfont=dict(size=9), color="#000000"))
             st.plotly_chart(fig_gt, use_container_width=True)
         else:
-            st.markdown(
-                "<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
 
 with col_g2:
     with st.container(border=True):
-        st.markdown(
-            '<div class="idx-title">⏱ Worst Waiting Time — CS</div>', unsafe_allow_html=True)
-        gc = branch_stats.dropna(subset=["gap_cs"]) if len(
-            branch_stats) > 0 else branch_stats
+        st.markdown('<div class="idx-title">⏱ Worst Waiting Time — CS</div>', unsafe_allow_html=True)
+        gc = branch_stats.dropna(subset=["gap_cs"]) if len(branch_stats) > 0 else branch_stats
         if len(gc) > 0:
             worst_cs = gc.nlargest(10, "gap_cs").sort_values("gap_cs")
             fig_gc = go.Figure(go.Bar(
                 x=worst_cs["gap_cs"], y=worst_cs["nama_cabang"], orientation="h",
-                marker_color=["#B91C1C" if v >
-                              0 else "#15803D" for v in worst_cs["gap_cs"]],
-                text=[
-                    f"<b>{'+' if v >= 0 else ''}{v:.1f} mnt</b>" for v in worst_cs["gap_cs"]],
+                marker_color=["#B91C1C" if v > 0 else "#15803D" for v in worst_cs["gap_cs"]],
+                text=[f"<b>{'+' if v >= 0 else ''}{v:.1f} mnt</b>" for v in worst_cs["gap_cs"]],
                 textposition="outside", textfont=dict(size=9, color="#000000"),
             ))
             fig_gc.update_layout(**PLOT, height=320, margin=dict(t=10, b=10, l=10, r=60),
-                                 xaxis=dict(
-                                     title="Gap Aktual − Toleransi (menit)", color="#000000", gridcolor="#EEE4D8"),
+                                 xaxis=dict(title="Gap Aktual − Toleransi (menit)", color="#000000", gridcolor="#EEE4D8"),
                                  yaxis=dict(tickfont=dict(size=9), color="#000000"))
             st.plotly_chart(fig_gc, use_container_width=True)
         else:
-            st.markdown(
-                "<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
-# 5. REGIONAL COMPARISON
+# 5. REGIONAL COMPARISON (DIPERBAIKI DENGAN RATA-RATA TERTIMBANG)
 # ════════════════════════════════════════════════════════════════════════════
-
 st.markdown(section_label("Regional Comparison"), unsafe_allow_html=True)
 
-
-# Metric selector
-reg_metric = st.selectbox(
-    "Metric",
-    ["CSI", "NPS", "CLI"],
-    key="reg_metric"
-)
-
+reg_metric = st.selectbox("Metric", ["CSI", "NPS", "CLI", "CES"], key="reg_metric")
 metric_col_reg = METRIC_COL[reg_metric]
 
-
-# Dua chart saja
 col_pr, col_kr = st.columns(2)
 
-
 with col_pr:
+    with st.container(border=True):
+        st.markdown(f'<div class="idx-title">Provinsi Ranking — {reg_metric}</div>', unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="idx-card">
-    """, unsafe_allow_html=True)
+        if len(branch_stats) > 0:
+            # Perbaikan Statistik: Groupby provinsi menggunakan weighted average berdasarkan responden cabang
+            prov_rank = branch_stats.groupby("provinsi").apply(
+                lambda x: pd.Series({
+                    "responden": x["responden"].sum(),
+                    "value": (x[metric_col_reg] * x["responden"]).sum() / x["responden"].sum() if x["responden"].sum() > 0 else 0.0
+                })
+            ).reset_index().dropna(subset=["value"]).sort_values("value", ascending=False)
 
-    st.markdown(
-        f'<div class="idx-title">Provinsi Ranking — {reg_metric}</div>',
-        unsafe_allow_html=True
-    )
-
-    if len(branch_stats) > 0:
-
-        prov_rank = (
-            branch_stats
-            .groupby("provinsi")
-            .agg(
-                value=(metric_col_reg, "mean"),
-                responden=("responden", "sum")
+            fig_pr = go.Figure(
+                go.Bar(
+                    x=prov_rank["value"],
+                    y=prov_rank["provinsi"],
+                    orientation="h",
+                    marker_color=[tier_color(reg_metric, v) for v in prov_rank["value"]],
+                    text=[f"<b>{v:.1f}</b>" for v in prov_rank["value"]],
+                    textposition="outside"
+                )
             )
-            .reset_index()
-            .dropna(subset=["value"])
-            .sort_values("value", ascending=False)
-        )
-
-        fig_pr = go.Figure(
-            go.Bar(
-                x=prov_rank["value"],
-                y=prov_rank["provinsi"],
-                orientation="h",
-                marker_color=[
-                    tier_color(reg_metric, v)
-                    for v in prov_rank["value"]
-                ],
-                text=[
-                    f"<b>{v:.1f}</b>"
-                    for v in prov_rank["value"]
-                ],
-                textposition="outside"
-            )
-        )
-
-        fig_pr.update_layout(
-            **PLOT,
-            height=420,
-            margin=dict(t=10, b=10, l=10, r=70),
-            yaxis=dict(
-                autorange="reversed"
-            )
-        )
-
-        st.plotly_chart(
-            fig_pr,
-            use_container_width=True,
-            key="prov_chart"
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
+            fig_pr.update_layout(**PLOT, height=420, margin=dict(t=10, b=10, l=10, r=70), yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig_pr, use_container_width=True, key="prov_chart")
+        else:
+            st.markdown("<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
 
 with col_kr:
+    with st.container(border=True):
+        st.markdown(f'<div class="idx-title">Kota/Kabupaten Ranking — {reg_metric}</div>', unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="idx-card">
-    """, unsafe_allow_html=True)
+        if len(branch_stats) > 0:
+            # Perbaikan Statistik: Groupby kab_kota menggunakan weighted average berdasarkan responden cabang
+            kota_rank = branch_stats.groupby("kab_kota").apply(
+                lambda x: pd.Series({
+                    "responden": x["responden"].sum(),
+                    "value": (x[metric_col_reg] * x["responden"]).sum() / x["responden"].sum() if x["responden"].sum() > 0 else 0.0
+                })
+            ).reset_index().dropna(subset=["value"]).sort_values("value", ascending=False).head(15)
 
-    st.markdown(
-        f'<div class="idx-title">Kota/Kabupaten Ranking — {reg_metric}</div>',
-        unsafe_allow_html=True
-    )
-
-    if len(branch_stats) > 0:
-
-        kota_rank = (
-            branch_stats
-            .groupby("kab_kota")
-            .agg(
-                value=(metric_col_reg, "mean"),
-                responden=("responden", "sum")
+            fig_kr = go.Figure(
+                go.Bar(
+                    x=kota_rank["value"],
+                    y=kota_rank["kab_kota"],
+                    orientation="h",
+                    marker_color=[tier_color(reg_metric, v) for v in kota_rank["value"]],
+                    text=[f"<b>{v:.1f}</b>" for v in kota_rank["value"]],
+                    textposition="outside"
+                )
             )
-            .reset_index()
-            .dropna(subset=["value"])
-            .sort_values(
-                "value",
-                ascending=False
-            )
-            .head(15)
-        )
-
-        fig_kr = go.Figure(
-            go.Bar(
-                x=kota_rank["value"],
-                y=kota_rank["kab_kota"],
-                orientation="h",
-                marker_color=[
-                    tier_color(reg_metric, v)
-                    for v in kota_rank["value"]
-                ],
-                text=[
-                    f"<b>{v:.1f}</b>"
-                    for v in kota_rank["value"]
-                ],
-                textposition="outside"
-            )
-        )
-
-        fig_kr.update_layout(
-            **PLOT,
-            height=420,
-            margin=dict(t=10, b=10, l=10, r=70),
-            yaxis=dict(
-                autorange="reversed"
-            )
-        )
-
-        st.plotly_chart(
-            fig_kr,
-            use_container_width=True,
-            key="kota_chart"
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
+            fig_kr.update_layout(**PLOT, height=420, margin=dict(t=10, b=10, l=10, r=70), yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig_kr, use_container_width=True, key="kota_chart")
+        else:
+            st.markdown("<div style='color:#000000;font-size:12px;'>Data tidak tersedia.</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 # APPENDIX — BRANCH DATA TABLE
 # ════════════════════════════════════════════════════════════════════════════
-st.markdown(section_label("Appendix — Branch Data Table"),
-            unsafe_allow_html=True)
+st.markdown(section_label("Appendix — Branch Data Table"), unsafe_allow_html=True)
 
 with st.container(border=True):
     if len(branch_stats) > 0:
         tbl = branch_stats[["nama_cabang", "provinsi", "kab_kota", "responden", "nps_score",
-                            "csi_pct", "cli_pct", "wait_teller", "wait_cs"]].copy()
-        tbl.columns = ["Cabang", "Provinsi", "Kota/Kab", "Responden", "NPS", "CSI (%)", "CLI (%)",
+                            "csi_pct", "cli_pct", "ces_pct", "wait_teller", "wait_cs"]].copy()
+        tbl.columns = ["Cabang", "Provinsi", "Kota/Kab", "Responden", "NPS", "CSI (%)", "CLI (%)", "CES (%)",
                        "Wait Teller (mnt)", "Wait CS (mnt)"]
-        for c in ["NPS", "CSI (%)", "CLI (%)", "Wait Teller (mnt)", "Wait CS (mnt)"]:
+        for c in ["NPS", "CSI (%)", "CLI (%)", "CES (%)", "Wait Teller (mnt)", "Wait CS (mnt)"]:
             tbl[c] = tbl[c].round(1)
-        tbl = tbl.sort_values(
-            "CSI (%)", ascending=False).reset_index(drop=True)
+        tbl = tbl.sort_values("CSI (%)", ascending=False).reset_index(drop=True)
         tbl.index += 1
         st.dataframe(tbl, use_container_width=True, height=380)
     else:
-        st.markdown(
-            "<div style='color:#000000;font-size:12px;padding:10px;'>Tidak ada data untuk filter yang dipilih.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#000000;font-size:12px;padding:10px;'>Tidak ada data untuk filter yang dipilih.</div>", unsafe_allow_html=True)
